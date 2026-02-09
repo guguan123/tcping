@@ -20,7 +20,7 @@
 	#include <netdb.h>
 #endif
 
-#define DEFAULT_PORT "9999"
+#define DEFAULT_PORT "50414"
 #define BUF_SIZE 64
 
 // 获取微秒时间戳

@@ -23,8 +23,7 @@
 	#define MSG_NOSIGNAL 0
 #endif
 
-#define DEFAULT_INTERVAL_SEC 1
-#define DEFAULT_PORT "9999"         // 默认连接的端口
+#define DEFAULT_PORT "50414"         // 默认连接的端口
 #define BUF_SIZE 256                // 收发缓冲区大小
 #define DEFAULT_INTERVAL 1       // 默认ping间隔（秒）
 #define DEFAULT_TIMEOUT 5
@@ -67,6 +66,36 @@ void addr_to_str(struct sockaddr *addr, char *str, size_t str_len) {
 	}
 }
 
+/**
+返回值：
+ >0 : 超时
+  0 : 有数据可读
+ <0 : 错误或连接断开
+*/
+int wait_for_readable(int sock, int timeout_sec) {
+    fd_set readfds;
+    struct timeval tv;
+
+    FD_ZERO(&readfds);
+    FD_SET(sock, &readfds);
+
+    tv.tv_sec = timeout_sec;
+    tv.tv_usec = 0;
+
+    int ret = select(sock + 1, &readfds, NULL, NULL, &tv);
+
+    if (ret < 0) {
+        // select 出错（可能是 socket 已关闭等）
+        return -1;
+    }
+    if (ret == 0) {
+        // 超时
+        return 1;
+    }
+    // 可读
+    return 0;
+}
+
 // 从服务器返回的字符串中解析出时间戳
 long long parse_pong_timestamp(const char *response) {
 	long long ts;
@@ -98,7 +127,7 @@ int main(int argc, char *argv[]) {
 			case 'i':
 				interval_sec = atoi(optarg);
 				if (interval_sec < 1) {
-					printf("%s: cannot flood, minimal interval for user must be >= 1 s, use -i 1 (or higher)");
+					printf("%s: cannot flood, minimal interval for user must be >= 1 s, use -i 1 (or higher)\n", argv[0]);
 					return 1;
 				}
 				break;
@@ -237,16 +266,6 @@ int main(int argc, char *argv[]) {
 	int count = 0;
 	long long total_rtt = 0;
 	long long min_rtt = 999999999, max_rtt = 0;
-	int lost = 0;
-
-	// 设置接收超时
-#ifdef _WIN32
-	DWORD timeout_ms = timeout_sec * 1000UL;
-	setsockopt(sock, SOL_SOCKET, SO_RCVTIMEO, (const char*)&timeout_ms, sizeof(timeout_ms));
-#else
-	struct timeval tv = { .tv_sec = timeout_sec / 1000, .tv_usec = (timeout_sec % 1000) * 1000};
-	setsockopt(sock, SOL_SOCKET, SO_RCVTIMEO, (const char*)&tv, sizeof(tv));
-#endif
 
 	while (running && (max_count == -1 || count < max_count)) {
 		long long send_time = get_usec_timestamp();
@@ -259,17 +278,65 @@ int main(int argc, char *argv[]) {
 			break;
 		}
 
+		// 清空缓冲
 		memset(buf, 0, BUF_SIZE);
-		int n = recv(sock, buf, BUF_SIZE - 1, 0);
+		char *ptr = buf;
+		int total_received = 0;
+		bool got_line = false;
 
-		if (n <= 0) {
+		while (running && total_received < BUF_SIZE - 1) {
+			int can_read = wait_for_readable(sock, timeout_sec);
+			if (can_read < 0) {
+				// select 出错或连接已断
+				if (running) {
+					printf("\n[!] Connection error or closed\n");
+				}
+				break;
+			}
+			if (can_read > 0) {
+				// 超时
+				if (running) {
+					printf("\n[!] Timeout waiting for PONG\n");
+				}
+				break;
+			}
+
+			// 有数据，读
+			int n = recv(sock, ptr, BUF_SIZE - 1 - total_received, 0);
+			if (n <= 0) {
+				if (running && n < 0) {
+					printf("\n[!] Recv error or connection closed\n");
+				}
+				break;
+			}
+
+			total_received += n;
+			ptr += n;
+
+			// 检查是否收到完整一行（以 \n 结尾）
+			if (memchr(buf, '\n', total_received) != NULL) {
+				got_line = true;
+				break;
+			}
+		}
+
+		if (!got_line || total_received == 0) {
 			if (running) {
-				printf("\n[!] Timeout or connection closed\n");
-				lost++;
+				printf("\n[!] Incomplete or empty response\n");
 			}
 			break;
 		}
 
+		// 确保字符串以 \0 结尾
+		buf[total_received] = '\0';
+
+		// 去掉尾部可能的 \r\n
+		char *end = buf + total_received - 1;
+		while (end >= buf && (*end == '\n' || *end == '\r')) {
+			*end-- = '\0';
+		}
+
+		// 这里 buf 就是完整的回复行了，比如 "PONG 123456789"
 		long long recv_time = get_usec_timestamp();
 		long long rtt = recv_time - send_time;
 
@@ -281,10 +348,10 @@ int main(int argc, char *argv[]) {
 		printf("Reply from %s: seq=%d time=%.3f ms\n", 
 			   addr_str, count, rtt / 1000.0);
 
-		// 尽量精确地控制发送间隔
+		// 控制发送间隔
 		if (interval_sec > 0 && (max_count == -1 || count < max_count)) {
 #ifdef _WIN32
-			// Windows: 拆成小块睡，200ms 粒度，响应 Ctrl+C 快
+			// Windows: 拆成小块睡，200ms 粒度
 			int remain_ms = interval_sec * 1000;
 			while (remain_ms > 0 && running) {
 				int slice_ms = (remain_ms > 200) ? 200 : remain_ms;
@@ -292,10 +359,8 @@ int main(int argc, char *argv[]) {
 				remain_ms -= slice_ms;
 			}
 #else
-			// Linux/macOS 等：直接 sleep，可被 SIGINT 中断
-			if (sleep(interval_sec) > 0) {
-				// 被信号中断了，继续检查 running
-			}
+			// Linux：直接 sleep
+			if (running) sleep(interval_sec);
 #endif
 		}
 	}
@@ -303,10 +368,7 @@ int main(int argc, char *argv[]) {
 	// 打印统计信息
 	if (count > 0) {
 		printf("\n--- %s tcpping statistics ---\n", host);
-		int total = count + lost;
-		double loss_rate = total > 0 ? (100.0 * lost / total) : 0;
-		printf("%d packets transmitted, %d received, %d lost, %.1f%% packet loss\n",
-			   total, count, lost, loss_rate);
+		printf("%d packets transmitted, %d received\n", count, count);
 		printf("rtt min/avg/max = %.3f/%.3f/%.3f ms\n",
 			   min_rtt / 1000.0,
 			   (total_rtt / count) / 1000.0,
