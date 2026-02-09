@@ -9,7 +9,6 @@
 	#include <windows.h>
 	#pragma comment(lib, "ws2_32.lib")
 	typedef int socklen_t;
-	#define close closesocket
 #else
 	#include <unistd.h>
 	#include <arpa/inet.h>
@@ -42,6 +41,7 @@ void handle_client(int client_fd, struct sockaddr *client_addr, socklen_t addr_l
 	char buf[BUF_SIZE];
 	char response[BUF_SIZE];
 	char client_str[INET6_ADDRSTRLEN];
+	char read_ptr = 0; // 记录缓冲区当前位置
 
 	// 获取客户端IP和端口
 	void *addr_ptr = NULL;
@@ -66,25 +66,51 @@ void handle_client(int client_fd, struct sockaddr *client_addr, socklen_t addr_l
 
 	// 循环接收客户端消息
 	while (1) {
-		memset(buf, 0, BUF_SIZE);
-		int n = recv(client_fd, buf, BUF_SIZE-1, 0);
-		
-		if (n <= 0) {   // 连接断开或出错
+		int n = recv(client_fd, buf + read_ptr, BUF_SIZE - 1 - read_ptr, 0);
+
+		if (n <= 0) {   // 连接断开
 			printf("[-] Client [%s]:%d disconnected\n", client_str, port);
 			break;
 		}
 
-		// 去掉换行符，方便比较
-		buf[strcspn(buf, "\r\n")] = '\0';
+		read_ptr += n;
+		buf[read_ptr] = '\0';
 
-		if (strcmp(buf, "PING") == 0) {
-			long long timestamp = get_usec_timestamp();
-			snprintf(response, BUF_SIZE, "PONG %lld\n", timestamp);
-			send(client_fd, response, strlen(response), 0);
+		char *line_end;
+		while ((line_end = strchr(buf, '\n')) != NULL) { // 循环处理缓冲区里的所有换行
+			*line_end = '\0';
+			char *cmd = buf;
+			// 处理 \r\n
+			if (line_end > buf && *(line_end - 1) == '\r') *(line_end - 1) = '\0';
+
+			if (strcmp(cmd, "PING") == 0) {
+				long long timestamp = get_usec_timestamp();
+				char resp[BUF_SIZE];
+				int len = snprintf(resp, BUF_SIZE, "PONG %lld\n", timestamp);
+				send(client_fd, resp, len, 0);
+			}
+
+			// 挪动剩余数据
+			int consumed = (line_end + 1) - buf;
+			int remaining = read_ptr - consumed;
+			if (remaining > 0) {
+				memmove(buf, line_end + 1, remaining);
+			}
+			read_ptr = remaining;
+			buf[read_ptr] = '\0';
+		}
+
+		if (read_ptr >= BUF_SIZE - 1) {
+			// 缓冲区满了，重置偏移量
+			printf("[!] Buffer overflow risk from client, clearing.\n");
+			read_ptr = 0; 
 		}
 	}
-
+#ifdef _WIN32
+	closesocket(client_fd);
+#else
 	close(client_fd);
+#endif
 }
 
 #ifdef _WIN32
@@ -107,6 +133,9 @@ int main(int argc, char *argv[]) {
 #ifdef _WIN32
 	WSADATA wsa_data;
 	WSAStartup(MAKEWORD(2, 2), &wsa_data);
+#else
+	// 忽略子进程结束信号，防止产生僵尸进程
+	signal(SIGCHLD, SIG_IGN);
 #endif
 
 	// 支持命令行指定端口
@@ -167,7 +196,7 @@ int main(int argc, char *argv[]) {
 			CloseHandle(hThread);   // 我们不等待线程结束
 		} else {
 			free(args);
-			close(client_fd);
+			closesocket(client_fd);
 		}
 #else
 		// Linux 使用 fork
@@ -184,9 +213,11 @@ int main(int argc, char *argv[]) {
 	}
 
 	// 正常情况下走不到这里
-	close(server_fd);
 #ifdef _WIN32
+	closesocket(server_fd);
 	WSACleanup();
+#else
+	close(server_fd);
 #endif
 	return 0;
 }
