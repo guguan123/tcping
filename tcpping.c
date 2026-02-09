@@ -207,11 +207,9 @@ int main(int argc, char *argv[]) {
 	if (err != 0) {
 #ifdef _WIN32
 		fprintf(stderr, "getaddrinfo failed: %d\n", err);
+		WSACleanup();
 #else
 		fprintf(stderr, "getaddrinfo failed: %s\n", gai_strerror(err));
-#endif
-#ifdef _WIN32
-		WSACleanup();
 #endif
 		return 1;
 	}
