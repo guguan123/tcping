@@ -8,10 +8,10 @@
 	#include <winsock2.h>
 	#include <ws2tcpip.h>
 	#include <windows.h>
-	#pragma comment(lib, "ws2_32.lib")
+	#pragma comment(lib, "ws2_32.lib") // 链接Winsock库
 	typedef int socklen_t;
 	#define close closesocket
-	#define usleep(x) Sleep((x)/1000)
+	#define usleep(x) Sleep((x)/1000)  // Windows没有usleep，用Sleep代替（单位ms）
 	#define MSG_NOSIGNAL 0
 #else
 	#include <unistd.h>
@@ -24,22 +24,23 @@
 	#define MSG_NOSIGNAL 0
 #endif
 
-#define DEFAULT_PORT "9999"
-#define BUF_SIZE 256
-#define DEFAULT_INTERVAL 1000
+#define DEFAULT_PORT "9999"         // 默认连接的端口
+#define BUF_SIZE 256                // 收发缓冲区大小
+#define DEFAULT_INTERVAL 1000       // 默认ping间隔（毫秒）
 
+// 全局变量：控制程序是否继续运行（Ctrl+C会改成0）
 volatile int running = 1;
 
-void signal_handler(int sig) {
-	running = 0;
-}
+// 捕获Ctrl+C信号的处理函数（把running设为0，while循环就会退出）
+void signal_handler(int sig) { running = 0; }
 
-// 获取当前微秒时间戳（跨平台）
+// 获取当前时间的微秒级时间戳（跨平台实现）
 long long get_usec_timestamp() {
 #ifdef _WIN32
 	FILETIME ft;
 	GetSystemTimeAsFileTime(&ft);
 	long long t = ((long long)ft.dwHighDateTime << 32) | ft.dwLowDateTime;
+	// 转换为Unix时间戳（微秒），Windows从1601年开始计数
 	return (t - 116444736000000000LL) / 10;
 #else
 	struct timeval tv;
@@ -48,7 +49,7 @@ long long get_usec_timestamp() {
 #endif
 }
 
-// 将地址结构转换为可打印字符串
+// 把socket地址（ipv4或ipv6）转成可读的字符串
 void addr_to_str(struct sockaddr *addr, char *str, size_t str_len) {
 	void *addr_ptr = NULL;
 	if (addr->sa_family == AF_INET) {
@@ -58,22 +59,25 @@ void addr_to_str(struct sockaddr *addr, char *str, size_t str_len) {
 	}
 	
 	if (addr_ptr) {
+		// 把二进制IP转成字符串（如 "192.168.1.1" 或 "2001:db8::1"）
 		inet_ntop(addr->sa_family, addr_ptr, str, str_len);
 	} else {
 		strncpy(str, "unknown", str_len);
 	}
 }
 
-// 解析服务端返回的时间戳
+// 从服务器返回的字符串中解析出时间戳
 long long parse_pong_timestamp(const char *response) {
 	long long ts;
+	// 期望格式是：PONG 1234567890123
 	if (sscanf(response, "PONG %lld", &ts) == 1) {
 		return ts;
 	}
-	return -1;
+	return -1;  // 解析失败
 }
 
 int main(int argc, char *argv[]) {
+	// 检查参数，至少要给一个主机名/IP
 	if (argc < 2) {
 		printf("TCP Ping Client (IPv6/IPv4 Long Connection)\n");
 		printf("Usage: %s <host> [port] [interval_ms] [count] [4|6]\n", argv[0]);
@@ -90,6 +94,7 @@ int main(int argc, char *argv[]) {
 		return 1;
 	}
 
+	// Windows下需要先初始化Winsock
 #ifdef _WIN32
 	WSADATA wsa_data;
 	if (WSAStartup(MAKEWORD(2, 2), &wsa_data) != 0) {
@@ -104,13 +109,15 @@ int main(int argc, char *argv[]) {
 	int max_count = (argc > 4) ? atoi(argv[4]) : -1;
 	const char *force_family = (argc > 5) ? argv[5] : NULL;
 
+	// 注册Ctrl+C信号处理
 	signal(SIGINT, signal_handler);
 
-	// 设置地址族偏好
+	// 准备 getaddrinfo 的提示参数
 	struct addrinfo hints, *res, *rp;
 	memset(&hints, 0, sizeof(hints));
-	hints.ai_socktype = SOCK_STREAM;
-	
+	hints.ai_socktype = SOCK_STREAM;    // 使用TCP
+
+	// 是否强制IPv4或IPv6
 	if (force_family) {
 		if (strcmp(force_family, "4") == 0) {
 			hints.ai_family = AF_INET;  // Force IPv4
@@ -150,7 +157,7 @@ int main(int argc, char *argv[]) {
 		sock = socket(rp->ai_family, rp->ai_socktype, rp->ai_protocol);
 		if (sock < 0) continue;
 
-		// 设置 TCP_NODELAY
+		// 关闭Nagle算法，减少小包延迟（对ping类应用很重要）
 		int nodelay = 1;
 		setsockopt(sock, IPPROTO_TCP, TCP_NODELAY, (char*)&nodelay, sizeof(nodelay));
 
@@ -190,14 +197,12 @@ int main(int argc, char *argv[]) {
 	long long min_rtt = 999999999, max_rtt = 0;
 	int lost = 0;
 
-	// 设置接收超时
+	// 设置接收超时（防止卡死）
 #ifdef _WIN32
 	DWORD timeout_ms = 5000;
 	setsockopt(sock, SOL_SOCKET, SO_RCVTIMEO, (char*)&timeout_ms, sizeof(timeout_ms));
 #else
-	struct timeval tv;
-	tv.tv_sec = 5;
-	tv.tv_usec = 0;
+	struct timeval tv = { .tv_sec = 5, .tv_usec = 0 };
 	setsockopt(sock, SOL_SOCKET, SO_RCVTIMEO, (char*)&tv, sizeof(tv));
 #endif
 
@@ -234,7 +239,7 @@ int main(int argc, char *argv[]) {
 		printf("Reply from %s: seq=%d time=%.3f ms\n", 
 			   addr_str, count, rtt / 1000.0);
 
-		// 精确间隔
+		// 尽量精确地控制发送间隔
 		if (interval_ms > 0 && (max_count == -1 || count < max_count)) {
 			long long elapsed = get_usec_timestamp() - send_time;
 			int sleep_us = interval_ms * 1000 - (int)elapsed;
@@ -244,7 +249,7 @@ int main(int argc, char *argv[]) {
 		}
 	}
 
-	// 统计输出
+	// 打印统计信息
 	if (count > 0) {
 		printf("\n--- %s tcpping statistics ---\n", host);
 		int total = count + lost;
