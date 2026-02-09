@@ -7,6 +7,7 @@
 	#include <winsock2.h>
 	#include <ws2tcpip.h>
 	#include <windows.h>
+	#include <afunix.h>
 	#pragma comment(lib, "ws2_32.lib")
 	typedef int socklen_t;
 #else
@@ -17,6 +18,7 @@
 	#include <sys/wait.h>
 	#include <sys/time.h>
 	#include <netdb.h>
+	#include <sys/un.h>
 #endif
 
 #define DEFAULT_PORT "50414"
@@ -41,34 +43,44 @@ void handle_client(int client_fd, struct sockaddr *client_addr, socklen_t addr_l
 	char buf[BUF_SIZE];
 	char client_str[INET6_ADDRSTRLEN];
 	int read_ptr = 0; // 记录缓冲区当前位置
-
-	// 获取客户端IP和端口
-	void *addr_ptr = NULL;
 	int port = 0;
+
+	// 解析客户端地址信息
 	if (client_addr->sa_family == AF_INET) {
 		struct sockaddr_in *sin = (struct sockaddr_in*)client_addr;
-		addr_ptr = &sin->sin_addr;
+		inet_ntop(AF_INET, &sin->sin_addr, client_str, sizeof(client_str));
 		port = ntohs(sin->sin_port);
-	} else if (client_addr->sa_family == AF_INET6) {
+	} 
+	else if (client_addr->sa_family == AF_INET6) {
 		struct sockaddr_in6 *sin6 = (struct sockaddr_in6*)client_addr;
-		addr_ptr = &sin6->sin6_addr;
+		inet_ntop(AF_INET6, &sin6->sin6_addr, client_str, sizeof(client_str));
 		port = ntohs(sin6->sin6_port);
-	}
-
-	if (addr_ptr) {
-		inet_ntop(client_addr->sa_family, addr_ptr, client_str, sizeof(client_str));
+	} else if (client_addr->sa_family == AF_UNIX) {
+		struct sockaddr_un *sun = (struct sockaddr_un*)client_addr;
+		int path_len = addr_len - offsetof(struct sockaddr_un, sun_path);
+		if (path_len > 0 && sun->sun_path[0] != '\0') {
+			snprintf(client_str, sizeof(client_str), "unix:%s", sun->sun_path);
+		} else {
+			strcpy(client_str, "unix:abstract_socket");
+		}
 	} else {
 		strcpy(client_str, "unknown");
 	}
 
-	printf("[+] Client connected: [%s]:%d\n", client_str, port);
+	printf("[+] Client connected: [%s]%s%d\n", 
+		client_str, 
+		(port > 0 ? ":" : ""), 
+		port);
 
 	// 循环接收客户端消息
 	while (1) {
 		int n = recv(client_fd, buf + read_ptr, BUF_SIZE - 1 - read_ptr, 0);
 
 		if (n <= 0) {   // 连接断开
-			printf("[-] Client [%s]:%d disconnected\n", client_str, port);
+			printf("[-] Client [%s]%s%d disconnected\n", 
+				client_str, 
+				(port > 0 ? ":" : ""), 
+				port);
 			break;
 		}
 
