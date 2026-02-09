@@ -4,7 +4,6 @@
 #include <signal.h>
 #include <stdbool.h>
 #include <getopt.h>  // 用于 getopt_long 支持长选项
-#include <netdb.h>
 
 #ifdef _WIN32
 	#include <winsock2.h>
@@ -16,6 +15,7 @@
 	#include <unistd.h>
 	#include <arpa/inet.h>
 	#include <sys/socket.h>
+	#include <netdb.h>
 	#include <netinet/in.h>
 	#include <netinet/tcp.h>
 	#include <sys/time.h>
