@@ -4,6 +4,7 @@
 #include <signal.h>
 #include <stdbool.h>
 #include <getopt.h>  // 用于 getopt_long 支持长选项
+#include <netdb.h>
 
 #ifdef _WIN32
 	#include <winsock2.h>
@@ -11,7 +12,6 @@
 	#include <windows.h>
 	#pragma comment(lib, "ws2_32.lib") // 链接Winsock库
 	typedef int socklen_t;
-	#define MSG_NOSIGNAL 0
 #else
 	#include <unistd.h>
 	#include <arpa/inet.h>
@@ -19,8 +19,6 @@
 	#include <netinet/in.h>
 	#include <netinet/tcp.h>
 	#include <sys/time.h>
-	#include <netdb.h>
-	#define MSG_NOSIGNAL 0
 #endif
 
 #define DEFAULT_PORT "50414"         // 默认连接的端口
@@ -198,7 +196,7 @@ int main(int argc, char *argv[]) {
 
 	printf("Resolving %s:%s", host, port_str);
 	if (force_family) {
-		printf(" (IPv%s only)", force_family);
+		printf(" (IPv%d only)", force_family);
 	}
 	printf("...\n");
 
