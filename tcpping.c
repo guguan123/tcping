@@ -11,6 +11,9 @@
 	#include <windows.h>
 	#pragma comment(lib, "ws2_32.lib") // 链接Winsock库
 	typedef int socklen_t;
+	#ifndef MSG_NOSIGNAL
+		#define MSG_NOSIGNAL 0
+	#endif
 #else
 	#include <unistd.h>
 	#include <arpa/inet.h>
