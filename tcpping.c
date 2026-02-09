@@ -335,7 +335,7 @@ int main(int argc, char *argv[]) {
 			*end-- = '\0';
 		}
 
-		// 这里 buf 就是完整的回复行了，比如 "PONG 123456789"
+		// 这里 buf 就是完整的回复行了，比如 "PONG"
 		long long recv_time = get_usec_timestamp();
 		long long rtt = recv_time - send_time;
 
