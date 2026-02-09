@@ -167,6 +167,9 @@ int main(int argc, char *argv[]) {
 		port_str = argv[optind];
 	}
 
+	printf("Starting long-connection ping to %s:%s (interval: %d sec, press Ctrl+C to stop)...\n\n",
+		host, port_str, interval_sec);
+
 	// Windows下需要先初始化Winsock
 #ifdef _WIN32
 	WSADATA wsa_data;
@@ -257,9 +260,6 @@ int main(int argc, char *argv[]) {
 #endif
 		return 1;
 	}
-
-    printf("Starting long-connection ping to %s:%s (interval: %d sec, press Ctrl+C to stop)...\n\n",
-           host, port_str, interval_sec);
 
 	char buf[BUF_SIZE];
 	int count = 0;
