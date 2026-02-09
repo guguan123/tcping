@@ -95,9 +95,8 @@ void handle_client(int client_fd, struct sockaddr *client_addr, socklen_t addr_l
 			if (line_end > buf && *(line_end - 1) == '\r') *(line_end - 1) = '\0';
 
 			if (strcmp(cmd, "PING") == 0) {
-				long long timestamp = get_usec_timestamp();
 				char resp[BUF_SIZE];
-				int len = snprintf(resp, BUF_SIZE, "PONG %lld\n", timestamp);
+				int len = snprintf(resp, BUF_SIZE, "PONG\n");
 				send(client_fd, resp, len, 0);
 			}
 
