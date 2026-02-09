@@ -37,10 +37,10 @@ long long get_usec_timestamp() {
 }
 
 // 处理单个客户端连接（收PING → 回PONG + 当前时间戳）
-void handle_client(int client_fd, struct sockaddr *client_addr, socklen_t addr_len) {
+void handle_client(int client_fd, struct sockaddr *client_addr) {
 	char buf[BUF_SIZE];
 	char client_str[INET6_ADDRSTRLEN];
-	char read_ptr = 0; // 记录缓冲区当前位置
+	int read_ptr = 0; // 记录缓冲区当前位置
 
 	// 获取客户端IP和端口
 	void *addr_ptr = NULL;

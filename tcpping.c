@@ -30,7 +30,7 @@
 volatile int running = 1;
 
 // 捕获Ctrl+C信号的处理函数（把running设为0，while循环就会退出）
-void signal_handler(int sig) { running = 0; }
+void signal_handler(int sig) { running = 0; (void)sig; }
 
 // 获取当前时间的微秒级时间戳（跨平台实现）
 long long get_usec_timestamp() {
