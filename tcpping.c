@@ -3,6 +3,7 @@
 #include <string.h>
 #include <signal.h>
 #include <stdbool.h>
+#include <getopt.h>  // 用于 getopt_long 支持长选项
 
 #ifdef _WIN32
 	#include <winsock2.h>
@@ -10,8 +11,6 @@
 	#include <windows.h>
 	#pragma comment(lib, "ws2_32.lib") // 链接Winsock库
 	typedef int socklen_t;
-	#define close closesocket
-	#define usleep(x) Sleep((x)/1000)  // Windows没有usleep，用Sleep代替（单位ms）
 	#define MSG_NOSIGNAL 0
 #else
 	#include <unistd.h>
@@ -24,9 +23,11 @@
 	#define MSG_NOSIGNAL 0
 #endif
 
+#define DEFAULT_INTERVAL_SEC 1
 #define DEFAULT_PORT "9999"         // 默认连接的端口
 #define BUF_SIZE 256                // 收发缓冲区大小
-#define DEFAULT_INTERVAL 1000       // 默认ping间隔（毫秒）
+#define DEFAULT_INTERVAL 1       // 默认ping间隔（秒）
+#define DEFAULT_TIMEOUT 5
 
 // 全局变量：控制程序是否继续运行（Ctrl+C会改成0）
 volatile int running = 1;
@@ -77,21 +78,63 @@ long long parse_pong_timestamp(const char *response) {
 }
 
 int main(int argc, char *argv[]) {
-	// 检查参数，至少要给一个主机名/IP
-	if (argc < 2) {
-		printf("TCP Ping Client (IPv6/IPv4 Long Connection)\n");
-		printf("Usage: %s <host> [port] [interval_ms] [count] [4|6]\n", argv[0]);
-		printf("  host        : Target hostname or IP (v4/v6)\n");
-		printf("  port        : Target port (default: %s)\n", DEFAULT_PORT);
-		printf("  interval_ms : Ping interval in ms (default: %d)\n", DEFAULT_INTERVAL);
-		printf("  count       : Number of pings, -1 for infinite (default: -1)\n");
-		printf("  4|6         : Force IPv4 or IPv6 (default: auto)\n");
-		printf("\nExamples:\n");
-		printf("  %s 192.168.1.1\n", argv[0]);
-		printf("  %s example.com 9999 1000 -1 4    (force IPv4)\n", argv[0]);
-		printf("  %s ::1 9999 500                   (IPv6 localhost)\n", argv[0]);
-		printf("  %s 2001:db8::1 80 1000 10        (IPv6 address)\n", argv[0]);
+	const char *host = NULL;
+	const char *port_str = DEFAULT_PORT;
+	int max_count = -1;               // -1 = infinite
+	int interval_sec = DEFAULT_INTERVAL;
+	int timeout_sec = DEFAULT_TIMEOUT;
+	int force_family = 0; // 0=auto, AF_INET=4, AF_INET6=6
+
+	int opt;
+	while ((opt = getopt(argc, argv, "c:i:w:46")) != -1) {
+		switch (opt) {
+			case 'c':
+				max_count = atoi(optarg);
+				if (max_count < 1) {
+					printf("%s: invalid argument: -c '%d': out of range: 1 <= value <= 2147483647\n", argv[0], max_count);
+					return 1;
+				}
+				break;
+			case 'i':
+				interval_sec = atoi(optarg);
+				if (interval_sec < 1) {
+					printf("%s: cannot flood, minimal interval for user must be >= 1 s, use -i 1 (or higher)");
+					return 1;
+				}
+				break;
+			case 'w':
+				timeout_sec = atoi(optarg);
+				if (timeout_sec < 0) {
+					printf("%s: invalid argument: -w '%d': out of range: 0 <= value <= 2147483647\n", argv[0], timeout_sec);
+					return 1;
+				}
+				break;
+			case '4':
+				force_family = 4;
+				break;
+			case '6':
+				force_family = 6;
+				break;
+			default:
+				// 打印 usage
+				printf("Usage: %s [-c count] [-i interval_sec] [-4|-6] host [port]\n", argv[0]);
+				printf("  -c <count>         stop after count pings (default: infinite)\n");
+				printf("  -i <interval>      seconds to wait between pings (default: %d)\n", DEFAULT_INTERVAL);
+				printf("  -w <timeout>       time to wait for response (default: %d)\n", DEFAULT_TIMEOUT);
+				printf("  -4                 force IPv4\n");
+				printf("  -6                 force IPv6\n");
+				return 0;
+		}
+	}
+
+	if (optind >= argc) {
+		printf("Missing host\n");
 		return 1;
+	}
+
+	host = argv[optind++];
+	if (optind < argc) {
+		port_str = argv[optind];
 	}
 
 	// Windows下需要先初始化Winsock
@@ -103,12 +146,6 @@ int main(int argc, char *argv[]) {
 	}
 #endif
 
-	const char *host = argv[1];
-	const char *port_str = (argc > 2) ? argv[2] : DEFAULT_PORT;
-	int interval_ms = (argc > 3) ? atoi(argv[3]) : DEFAULT_INTERVAL;
-	int max_count = (argc > 4) ? atoi(argv[4]) : -1;
-	const char *force_family = (argc > 5) ? argv[5] : NULL;
-
 	// 注册Ctrl+C信号处理
 	signal(SIGINT, signal_handler);
 
@@ -119,9 +156,9 @@ int main(int argc, char *argv[]) {
 
 	// 是否强制IPv4或IPv6
 	if (force_family) {
-		if (strcmp(force_family, "4") == 0) {
+		if (force_family == 4) {
 			hints.ai_family = AF_INET;  // Force IPv4
-		} else if (strcmp(force_family, "6") == 0) {
+		} else if (force_family == 6) {
 			hints.ai_family = AF_INET6; // Force IPv6
 		} else {
 			hints.ai_family = AF_UNSPEC; // Auto
@@ -157,7 +194,7 @@ int main(int argc, char *argv[]) {
 		sock = socket(rp->ai_family, rp->ai_socktype, rp->ai_protocol);
 		if (sock < 0) continue;
 
-		// 关闭Nagle算法，减少小包延迟（对ping类应用很重要）
+		// 关闭Nagle算法，减少小包延迟
 		int nodelay = 1;
 		setsockopt(sock, IPPROTO_TCP, TCP_NODELAY, (char*)&nodelay, sizeof(nodelay));
 
@@ -175,7 +212,11 @@ int main(int argc, char *argv[]) {
 			break; // 连接成功
 		}
 
+#ifdef _WIN32
+		closesocket(sock);
+#else
 		close(sock);
+#endif
 		sock = -1;
 	}
 
@@ -189,7 +230,8 @@ int main(int argc, char *argv[]) {
 		return 1;
 	}
 
-	printf("Starting long-connection ping (interval: %d ms, press Ctrl+C to stop)...\n\n", interval_ms);
+    printf("Starting long-connection ping to %s:%s (interval: %d sec, press Ctrl+C to stop)...\n\n",
+           host, port_str, interval_sec);
 
 	char buf[BUF_SIZE];
 	int count = 0;
@@ -197,13 +239,13 @@ int main(int argc, char *argv[]) {
 	long long min_rtt = 999999999, max_rtt = 0;
 	int lost = 0;
 
-	// 设置接收超时（防止卡死）
+	// 设置接收超时
 #ifdef _WIN32
-	DWORD timeout_ms = 5000;
-	setsockopt(sock, SOL_SOCKET, SO_RCVTIMEO, (char*)&timeout_ms, sizeof(timeout_ms));
+	DWORD timeout_ms = timeout_sec * 1000UL;
+	setsockopt(sock, SOL_SOCKET, SO_RCVTIMEO, (const char*)&timeout_ms, sizeof(timeout_ms));
 #else
-	struct timeval tv = { .tv_sec = 5, .tv_usec = 0 };
-	setsockopt(sock, SOL_SOCKET, SO_RCVTIMEO, (char*)&tv, sizeof(tv));
+	struct timeval tv = { .tv_sec = timeout_sec / 1000, .tv_usec = (timeout_sec % 1000) * 1000};
+	setsockopt(sock, SOL_SOCKET, SO_RCVTIMEO, (const char*)&tv, sizeof(tv));
 #endif
 
 	while (running && (max_count == -1 || count < max_count)) {
@@ -240,12 +282,21 @@ int main(int argc, char *argv[]) {
 			   addr_str, count, rtt / 1000.0);
 
 		// 尽量精确地控制发送间隔
-		if (interval_ms > 0 && (max_count == -1 || count < max_count)) {
-			long long elapsed = get_usec_timestamp() - send_time;
-			int sleep_us = interval_ms * 1000 - (int)elapsed;
-			if (sleep_us > 0) {
-				usleep(sleep_us);
+		if (interval_sec > 0 && (max_count == -1 || count < max_count)) {
+#ifdef _WIN32
+			// Windows: 拆成小块睡，200ms 粒度，响应 Ctrl+C 快
+			int remain_ms = interval_sec * 1000;
+			while (remain_ms > 0 && running) {
+				int slice_ms = (remain_ms > 200) ? 200 : remain_ms;
+				Sleep(slice_ms);
+				remain_ms -= slice_ms;
 			}
+#else
+			// Linux/macOS 等：直接 sleep，可被 SIGINT 中断
+			if (sleep(interval_sec) > 0) {
+				// 被信号中断了，继续检查 running
+			}
+#endif
 		}
 	}
 
@@ -264,7 +315,11 @@ int main(int argc, char *argv[]) {
 		printf("\nNo successful pings.\n");
 	}
 
+#ifdef _WIN32
+	closesocket(sock);
+#else
 	close(sock);
+#endif
 
 #ifdef _WIN32
 	WSACleanup();
