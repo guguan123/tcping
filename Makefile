@@ -3,15 +3,15 @@
 CC = gcc
 CFLAGS = -Wall -Wextra -std=c99 -D_DEFAULT_SOURCE
 
-all: tcpping tcppingd
+all: tcpping.exe tcppingd.exe
 
-tcpping: tcpping.c
-	$(CC) $(CFLAGS) tcpping.c -o tcpping
+tcpping.exe: tcpping.c
+	$(CC) $(CFLAGS) tcpping.c -o tcpping.exe
 
-tcppingd: tcppingd.c
-	$(CC) $(CFLAGS) tcppingd.c -o tcppingd
+tcppingd.exe: tcppingd.c
+	$(CC) $(CFLAGS) tcppingd.c -o tcppingd.exe
 
 clean:
-	rm -f tcpping tcppingd
+	rm -f tcpping.exe tcppingd.exe
 
 rebuild: clean all
