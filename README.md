@@ -60,7 +60,7 @@ Once the server is running, you can use the `tcpping` client to test connectivit
 
 **Example:**
 
-Ping a server at `example.com` on port `80` five times with a 2-second interval:
+Ping a server at `neko.guguan.us.kg` on port `50414` five times:
 
 ```bash
 ./tcpping -c 5 neko.guguan.us.kg
