@@ -1,17 +1,33 @@
-# Makefile for tcping and tcppingd
-
 CC = gcc
+# 基础编译参数
 CFLAGS = -Wall -Wextra -std=c99 -D_DEFAULT_SOURCE
+# 链接库参数，默认先设为空
+LIBS = 
 
-all: tcpping.exe tcppingd.exe
+# 判断系统环境
+ifeq ($(OS), Windows_NT)
+	# 如果是 Windows 环境，加上网络库
+	LIBS += -lws2_32
+	TARGET_PING = tcpping.exe
+	TARGET_PONG = tcppingd.exe
+	RM = del /f /q
+else
+	# 如果是 Linux/Unix 环境
+	LIBS += 
+	TARGET_PING = tcpping
+	TARGET_PONG = tcppingd
+	RM = rm -f
+endif
 
-tcpping.exe: tcpping.c
-	$(CC) $(CFLAGS) tcpping.c -o tcpping.exe
+all: $(TARGET_PING) $(TARGET_PONG)
 
-tcppingd.exe: tcppingd.c
-	$(CC) $(CFLAGS) tcppingd.c -o tcppingd.exe
+$(TARGET_PING): tcpping.c
+	$(CC) $(CFLAGS) tcpping.c -o $(TARGET_PING) $(LIBS)
+
+$(TARGET_PONG): tcppingd.c
+	$(CC) $(CFLAGS) tcppingd.c -o $(TARGET_PONG) $(LIBS)
 
 clean:
-	rm -f tcpping.exe tcppingd.exe
+	$(RM) $(TARGET_PING) $(TARGET_PONG)
 
 rebuild: clean all

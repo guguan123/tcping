@@ -9,7 +9,9 @@
 	#include <winsock2.h>
 	#include <ws2tcpip.h>
 	#include <windows.h>
-	#pragma comment(lib, "ws2_32.lib") // 链接Winsock库
+	#ifdef _MSC_VER
+		#pragma comment(lib, "ws2_32.lib") // 链接Winsock库
+	#endif
 	typedef int socklen_t;
 	#ifndef MSG_NOSIGNAL
 		#define MSG_NOSIGNAL 0

@@ -8,7 +8,9 @@
 	#include <ws2tcpip.h>
 	#include <windows.h>
 	#include <afunix.h>
-	#pragma comment(lib, "ws2_32.lib")
+	#ifdef _MSC_VER
+		#pragma comment(lib, "ws2_32.lib")
+	#endif
 	typedef int socklen_t;
 #else
 	#include <unistd.h>
