@@ -1,121 +1,145 @@
 #!/bin/bash
 
-# tcpping.sh: A bash-only TCP ping client using /dev/tcp
-# Usage: tcpping.sh <host> <port> [count]
+# tcpping.sh: Bash TCP ping client using /dev/tcp (long connection)
+# Usage: tcpping.sh [-c count] [-i interval] [-w timeout] host [port]
 
-HOST=$1
-PORT=${2:-50414}
-COUNT=${3:-5} # Default to 5 ping if count is not provided
-TIMEOUT=${4:-5} # Default timeout for read operations
-INTERVAL=${5:-1} # Default interval between pings in seconds
+# Default values
+COUNT=-1  # -1 means infinite
+INTERVAL=1
+TIMEOUT=5
+PORT=50414
 
-# Check if 'bc' is available
-if ! command -v bc &> /dev/null; then
-    BC_AVAILABLE=false
-    echo "Warning: 'bc' command not found. Latency will be calculated using integer division, which may reduce precision. For more precise results, please install 'bc'."
+# Parse options (simple getopts, no long opts)
+while getopts ":c:i:w:" opt; do
+  case $opt in
+    c) COUNT="$OPTARG" ;;
+    i) INTERVAL="$OPTARG" ;;
+    w) TIMEOUT="$OPTARG" ;;
+    \?) echo "Invalid option: -$OPTARG" >&2; exit 1 ;;
+  esac
+done
+shift $((OPTIND-1))
+
+HOST="${1:?Missing host}"
+PORT="${2:-$PORT}"
+
+# Check for bc
+if command -v bc >/dev/null 2>&1; then
+  BC_AVAILABLE=true
 else
-    BC_AVAILABLE=true
+  BC_AVAILABLE=false
+  echo "Warning: 'bc' not found. Using integer math (less precise)."
 fi
 
-if [ -z "$HOST" ] || [ -z "$PORT" ]; then
-    echo "Usage: $0 <host> <port> [count] [timeout] [interval]"
+# Check date nanoseconds support (fallback to milliseconds if not)
+if date +%s%N >/dev/null 2>&1; then
+  TIME_CMD="date +%s%N"
+  NANO_FACTOR=1000000
+else
+  # macOS or others: use perl for ms precision
+  if command -v perl >/dev/null 2>&1; then
+    TIME_CMD="perl -MTime::HiRes -e 'printf(\"%.0f\n\", Time::HiRes::time() * 1000)'"
+    NANO_FACTOR=1000  # Actually ms, but we treat as "nano" for calc
+  else
+    echo "Error: Need 'date +%s%N' or 'perl' for timing." >&2
     exit 1
+  fi
 fi
 
-echo "TCP Pinging $HOST:$PORT with $COUNT attempts (timeout: ${TIMEOUT}s, interval: ${INTERVAL}s)..."
+echo "TCP Pinging $HOST:$PORT (count: ${COUNT/-1/infinite}, interval: $INTERVAL s, timeout: $TIMEOUT s)..."
+echo "Press Ctrl+C to stop."
 
-# Establish the TCP connection once
-# The timeout option for 'connect' relies on the system's default TCP connect timeout.
-(exec 3<>/dev/tcp/$HOST/$PORT) &> /dev/null
-CONNECT_STATUS=$?
+# Trap Ctrl+C
+trap 'echo -e "\nCaught Ctrl+C, exiting..."; running=0' INT
 
-if [ $CONNECT_STATUS -ne 0 ]; then
-    echo "Failed to establish initial connection to $HOST:$PORT"
-    exit 1
+# Open connection
+exec 3<>/dev/tcp/$HOST/$PORT
+if [ $? -ne 0 ]; then
+  echo "Failed to connect to $HOST:$PORT" >&2
+  exit 1
 fi
-echo "Connection established to $HOST:$PORT (file descriptor 3)"
 
-# Statistics variables
-SUCCESS_COUNT=0
-TOTAL_LATENCY_NANO=0
-MIN_LATENCY_NANO=-1
-MAX_LATENCY_NANO=0
+# Stats
+transmitted=0
+received=0
+total_rtt_nano=0
+min_rtt_nano=999999999999
+max_rtt_nano=0
+running=1
 
-for i in $(seq 1 $COUNT); do
-    # Placeholder for PING/PONG logic
-    START_TIME=$(date +%s%N) # Get nanosecond precision time
-    echo -ne "PING\n" >&3 # Send PING to the server
-    
-    # Check if send failed (e.g., broken pipe)
-    if [ $? -ne 0 ]; then
-        echo "Error: Failed to send PING to $HOST:$PORT. Connection might be closed."
-        break # Exit loop on send failure
+while [ $running -eq 1 ] && [ $COUNT -eq -1 -o $transmitted -lt $COUNT ]; do
+  start_time=$($TIME_CMD)
+  echo -n "PING" >&3
+  if [ $? -ne 0 ]; then
+    echo "Send failed (connection broken?)" >&2
+    break
+  fi
+
+  transmitted=$((transmitted + 1))
+
+  # Read response with timeout
+  if read -t $TIMEOUT -u 3 response; then
+    end_time=$($TIME_CMD)
+
+    # Trim response (remove \r\n and spaces)
+    response=$(echo "$response" | tr -d '\r\n[:space:]')
+
+    # Parse if has timestamp (PONG<timestamp>)
+    server_ts=-1
+    if [[ $response =~ ^PONG([0-9]+)$ ]]; then
+      server_ts=${BASH_REMATCH[1]}
     fi
-    
-    RESPONSE=""
-    if ! read -t $TIMEOUT -u 3 RESPONSE; then
-        if [ $? -eq 1 ]; then
-            echo "Timeout waiting for PONG from $HOST:$PORT (seq=$i)"
-        else
-            echo "Error reading from $HOST:$PORT (seq=$i)"
-        fi
-        continue # Skip to next ping if read failed
-    fi
-    END_TIME=$(date +%s%N)
-    
-    # Trim whitespace and newline from response
-    RESPONSE=$(echo "$RESPONSE" | tr -d '\r\n')
 
-    if [ "$RESPONSE" == "PONG" ]; then
-        LATENCY_NANO=$((END_TIME - START_TIME))
-        if [ "$BC_AVAILABLE" = false ]; then
-            LATENCY_MS=$((LATENCY_NANO / 1000000))
-        else
-            LATENCY_MS=$(echo "scale=2; $LATENCY_NANO / 1000000" | bc)
-        fi
-        echo "Reply from $HOST:$PORT: seq=$i time=${LATENCY_MS}ms"
-
-        # Update statistics
-        SUCCESS_COUNT=$((SUCCESS_COUNT + 1))
-        TOTAL_LATENCY_NANO=$((TOTAL_LATENCY_NANO + LATENCY_NANO))
-        if [ "$MIN_LATENCY_NANO" -eq -1 ] || [ "$LATENCY_NANO" -lt "$MIN_LATENCY_NANO" ]; then
-            MIN_LATENCY_NANO=$LATENCY_NANO
-        fi
-        if [ "$LATENCY_NANO" -gt "$MAX_LATENCY_NANO" ]; then
-            MAX_LATENCY_NANO=$LATENCY_NANO
-        fi
+    # Calc RTT (prefer server ts if available, else local diff)
+    if [ $server_ts -ne -1 ]; then
+      # Assume server_ts is usec, adjust if needed
+      rtt_nano=$(( (end_time - start_time) + (start_time - server_ts * (NANO_FACTOR / 1000)) ))  # Adjust units
     else
-        echo "Unexpected response from $HOST:$PORT: '$RESPONSE' (seq=$i)"
+      rtt_nano=$((end_time - start_time))
     fi
 
-    sleep $INTERVAL
+    if [ $rtt_nano -gt 0 ]; then
+      received=$((received + 1))
+      total_rtt_nano=$((total_rtt_nano + rtt_nano))
+      [ $rtt_nano -lt $min_rtt_nano ] && min_rtt_nano=$rtt_nano
+      [ $rtt_nano -gt $max_rtt_nano ] && max_rtt_nano=$rtt_nano
 
+      if $BC_AVAILABLE; then
+        rtt_ms=$(echo "scale=3; $rtt_nano / $NANO_FACTOR" | bc)
+      else
+        rtt_ms=$((rtt_nano / NANO_FACTOR))
+      fi
+      echo "Reply from $HOST:$PORT: seq=$transmitted time=$rtt_ms ms"
+    else
+      echo "Invalid RTT (bad timestamp?)"
+    fi
+  else
+    echo "Timeout for seq=$transmitted"
+  fi
 
+  # Sleep interval (but check running)
+  sleep $INTERVAL
 done
 
-# Print statistics
-echo ""
-echo "--- $HOST tcpping statistics ---"
-echo "$COUNT packets transmitted, $SUCCESS_COUNT received"
-
-if [ "$SUCCESS_COUNT" -gt 0 ]; then
-    if [ "$BC_AVAILABLE" = false ]; then
-        AVG_LATENCY_MS=$((TOTAL_LATENCY_NANO / SUCCESS_COUNT / 1000000))
-        MIN_LATENCY_MS=$((MIN_LATENCY_NANO / 1000000))
-        MAX_LATENCY_MS=$((MAX_LATENCY_NANO / 1000000))
-        echo "rtt min/avg/max = ${MIN_LATENCY_MS}ms/${AVG_LATENCY_MS}ms/${MAX_LATENCY_MS}ms"
-    else
-        AVG_LATENCY_MS=$(echo "scale=3; $TOTAL_LATENCY_NANO / $SUCCESS_COUNT / 1000000" | bc)
-        MIN_LATENCY_MS=$(echo "scale=3; $MIN_LATENCY_NANO / 1000000" | bc)
-        MAX_LATENCY_MS=$(echo "scale=3; $MAX_LATENCY_NANO / 1000000" | bc)
-        echo "rtt min/avg/max = ${MIN_LATENCY_MS}ms/${AVG_LATENCY_MS}ms/${MAX_LATENCY_MS}ms"
-    fi
-else
-    echo "No successful pings."
-fi
-
-# Close the file descriptor when done
+# Close connection
 exec 3<&-
 exec 3>&-
 
-echo "Connection closed."
+# Print stats
+echo -e "\n--- $HOST:$PORT tcpping statistics ---"
+echo "$transmitted packets transmitted, $received received"
+
+if [ $received -gt 0 ]; then
+  if $BC_AVAILABLE; then
+    avg_rtt_ms=$(echo "scale=3; $total_rtt_nano / $received / $NANO_FACTOR" | bc)
+    min_rtt_ms=$(echo "scale=3; $min_rtt_nano / $NANO_FACTOR" | bc)
+    max_rtt_ms=$(echo "scale=3; $max_rtt_nano / $NANO_FACTOR" | bc)
+  else
+    avg_rtt_ms=$((total_rtt_nano / received / NANO_FACTOR))
+    min_rtt_ms=$((min_rtt_nano / NANO_FACTOR))
+    max_rtt_ms=$((max_rtt_nano / NANO_FACTOR))
+  fi
+  echo "rtt min/avg/max = $min_rtt_ms / $avg_rtt_ms / $max_rtt_ms ms"
+else
+  echo "No successful pings."
+fi
