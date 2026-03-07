@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
 
 # Default values
-HOST="neko.guguan.us.kg"
-PORT=50414
-COUNT=-1  # -1 means infinite
-INTERVAL=1
-TIMEOUT=5
+HOST="${PING_HOST:-neko.guguan.us.kg}"
+PORT="${PING_PORT:-50414}"
+COUNT="${PING_COUNT:--1}" # -1 means infinite
+INTERVAL="${PING_INTERVAL:-1}"
+TIMEOUT="${PING_TIMEOUT:-5}"
 running=1
 
 # --- 参数解析 ---
@@ -23,6 +23,9 @@ while getopts "c:i:w:" opt; do
 	esac
 done
 shift $((OPTIND-1))
+# 检查必填参数
+HOST="${1:-$HOST}"
+PORT="${2:-$PORT}"
 
 # --- 封装计算工具 ---
 calc() {
@@ -63,10 +66,6 @@ fmin() {
 		[ "${1%.*}" -lt "${2%.*}" ] && echo "$a" || echo "$b"
 	fi
 }
-
-# 检查必填参数
-HOST="${1:-$HOST}"
-PORT="${2:-$PORT}"
 
 # 建立连接
 if ! exec 3<>/dev/tcp/$HOST/$PORT; then
