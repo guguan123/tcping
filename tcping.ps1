@@ -15,7 +15,7 @@ $running = $true
 # 处理 Ctrl+C
 
 Write-Host "Connecting to ${HostName}:${Port}..." -ForegroundColor Cyan
-Write-Host "(count: $(if($Count -eq -1){"infinite"}else{$Count}), interval: $Interval s, timeout: $Timeout s)"
+#Write-Host "(count: $(if($Count -eq -1){"infinite"}else{$Count}), interval: $Interval s, timeout: $Timeout s)"
 
 $client = New-Object System.Net.Sockets.TcpClient
 try {

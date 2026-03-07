@@ -74,8 +74,7 @@ if ! exec 3<>/dev/tcp/$HOST/$PORT; then
 fi
 
 echo "Connected to $HOST:$PORT..."
-echo "(count: ${COUNT/-1/infinite}, interval: $INTERVAL s, timeout: $TIMEOUT s)"
-echo "Press Ctrl+C to stop."
+#echo "(count: ${COUNT/-1/infinite}, interval: $INTERVAL s, timeout: $TIMEOUT s)"
 
 # Trap Ctrl+C
 trap 'echo -e "\nCaught Ctrl+C, exiting..."; running=0' INT

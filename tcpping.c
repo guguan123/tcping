@@ -169,8 +169,7 @@ int main(int argc, char *argv[]) {
 		port_str = argv[optind];
 	}
 
-	printf("Starting long-connection ping to %s:%s (interval: %d sec, press Ctrl+C to stop)...\n",
-		host, port_str, interval_sec);
+	printf("Connecting to %s:%s...\n", host, port_str);
 
 	// Windows下需要先初始化Winsock
 #ifdef _WIN32
