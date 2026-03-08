@@ -101,4 +101,4 @@ wget -O- https://github.com/guguan123/tcping/raw/refs/heads/main/tcping.sh | bas
 or
 
 ```bash
-bash <(curl -s https://github.com/guguan123/tcping/raw/refs/heads/main/tcping.sh) -c 5
+bash <(curl -sL https://github.com/guguan123/tcping/raw/refs/heads/main/tcping.sh) -c 5
