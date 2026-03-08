@@ -82,6 +82,12 @@ trap 'echo -e "\nCaught Ctrl+C, exiting..."; running=0' INT
 # --- 主循环 ---
 transmitted=0
 while [[ $running -eq 1 ]] && { [[ $COUNT -eq -1 ]] || [[ $transmitted -lt $COUNT ]]; }; do
+	if [[ $transmitted -gt 0 ]]; then
+		sleep "$INTERVAL"
+	fi
+	if [[ $running -ne 1 ]]; then
+		break
+	fi 
 	# 记录发送前的时间 (单位：纳秒)
 	# %s 是秒，%N 是纳秒
 	start_time=$(date +%s%N)
@@ -97,10 +103,10 @@ while [[ $running -eq 1 ]] && { [[ $COUNT -eq -1 ]] || [[ $transmitted -lt $COUN
 		transmitted=$((transmitted + 1))
 		# 记录收到回复的时间
 		end_time=$(date +%s%N)
-		
+
 		# 计算当前 RTT (纳秒转毫秒)
 		duration_ms=$(calc "($end_time - $start_time) / 1000000")
-		
+
 		echo "Reply from $HOST: seq=$transmitted time=$duration_ms ms"
 
 		# 更新统计数据
@@ -111,7 +117,6 @@ while [[ $running -eq 1 ]] && { [[ $COUNT -eq -1 ]] || [[ $transmitted -lt $COUN
 			max_rtt_ms=$(fmax "$duration_ms" "${max_rtt_ms:-0}")
 			min_rtt_ms=$(fmin "$duration_ms" "$min_rtt_ms")
 		fi
-		[[ $running -eq 1 ]] && sleep "$INTERVAL"
 	else
 		echo "Timeout for seq=$transmitted"
 		break
