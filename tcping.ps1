@@ -26,6 +26,9 @@ try {
 	$writer.AutoFlush = $true
 
 	while ($running -and ($Count -eq -1 -or $transmitted -lt $Count)) {
+		if ($transmitted -gt 0) { Start-Sleep -Seconds $Interval }
+		if (-not $running) { break }
+
 		$startTime = [DateTime]::Now
 		
 		try {
@@ -46,7 +49,7 @@ try {
 					if ($rtt -lt $minRtt) { $minRtt = $rtt }
 					if ($rtt -gt $maxRtt) { $maxRtt = $rtt }
 
-					Write-Host ("Reply from {0}: seq={1} time={2:F3} ms" -f $HostName, $transmitted, $rtt)
+					Write-Host ("Reply from {0}: seq={1} time={2} ms" -f $HostName, $transmitted, $rtt)
 				}
 			} else {
 				Write-Host "Timeout for seq=$($transmitted + 1)" -ForegroundColor Red
@@ -56,8 +59,6 @@ try {
 			Write-Host "Connection error!" -ForegroundColor Red
 			break
 		}
-
-		if ($running) { Start-Sleep -Seconds $Interval }
 	}
 } catch {
 	Write-Host "Failed to connect to ${HostName}:${Port}" -ForegroundColor Red
@@ -67,7 +68,7 @@ try {
 		$avgRtt = $totalRtt / $transmitted
 		Write-Host "`n--- ${HostName}:${Port} tcpping statistics ---" -ForegroundColor Cyan
 		Write-Host "$transmitted packets transmitted"
-		Write-Host ("rtt min/avg/max = {0:F3} / {1:F3} / {2:F3} ms" -f $minRtt, $avgRtt, $maxRtt)
+		Write-Host ("rtt min/avg/max = {0} / {1} / {2} ms" -f $minRtt, $avgRtt, $maxRtt)
 	}
 	if ($null -ne $client) { $client.Close() }
 }

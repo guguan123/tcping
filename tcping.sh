@@ -81,11 +81,11 @@ trap 'echo -e "\nCaught Ctrl+C, exiting..."; running=0' INT
 
 # --- 主循环 ---
 transmitted=0
-while [[ $running -eq 1 ]] && { [[ $COUNT -eq -1 ]] || [[ $transmitted -lt $COUNT ]]; }; do
+while [[ $running -ge 1 ]] && { [[ $COUNT -eq -1 ]] || [[ $transmitted -lt $COUNT ]]; }; do
 	if [[ $transmitted -gt 0 ]]; then
 		sleep "$INTERVAL"
 	fi
-	if [[ $running -ne 1 ]]; then
+	if [[ $running -lt 1 ]]; then
 		break
 	fi 
 	# 记录发送前的时间 (单位：纳秒)
