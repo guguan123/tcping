@@ -27,7 +27,7 @@ This will create two executables: `tcpping` (client) and `tcppingd` (server) in 
 
 ## Usage
 
-### 1. Start the Server (`tcppingd`)
+### 1. Start the Server
 
 First, start the `tcppingd` daemon on the target host. By default, it listens on port `50414`. You can specify a different port as an argument.
 
@@ -42,7 +42,7 @@ You should see output similar to:
 [+] TCP Ping Server listening on [::]:50414 (IPv4/IPv6 dual-stack)
 ```
 
-### 2. Run the Client (`tcpping`)
+### 2. Run the Client
 
 Once the server is running, you can use the `tcpping` client to test connectivity and measure latency. Specify the target host and optionally the port.
 
@@ -83,3 +83,22 @@ Reply from 2605:8340:0:7::1c: seq=5 time=231.807 ms
 5 packets transmitted, 5 received
 rtt min/avg/max = 231.807/232.839/236.488 ms
 ```
+
+### Other
+
+**PowerShell:**
+
+```powershell
+& ([scriptblock]::Create((Invoke-RestMethod "https://github.com/guguan123/tcping/raw/refs/heads/main/tcping.ps1"))) -Count 5
+```
+
+**Bash:**
+
+```bash
+wget -O- https://github.com/guguan123/tcping/raw/refs/heads/main/tcping.sh | bash -s -- -c 5
+```
+
+or
+
+```bash
+bash <(curl -s https://github.com/guguan123/tcping/raw/refs/heads/main/tcping.sh) -c 5
