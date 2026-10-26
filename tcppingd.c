@@ -27,6 +27,11 @@
 #define DEFAULT_PORT "50414"
 #define BUF_SIZE 64
 
+// MSG_NOSIGNAL 只有 Linux 才有；Windows 上定义为 0，避免对端断开时进程被 SIGPIPE 杀掉
+#ifndef MSG_NOSIGNAL
+	#define MSG_NOSIGNAL 0
+#endif
+
 // 获取微秒时间戳
 long long get_usec_timestamp() {
 #ifdef _WIN32
@@ -99,8 +104,8 @@ void handle_client(int client_fd, struct sockaddr *client_addr, socklen_t addr_l
 
 			if (strcmp(cmd, "PING") == 0) {
 				char resp[BUF_SIZE];
-				int len = snprintf(resp, BUF_SIZE, "PONG\n");
-				send(client_fd, resp, len, 0);
+				int len = snprintf(resp, BUF_SIZE, "PONG\r\n");
+				send(client_fd, resp, len, MSG_NOSIGNAL);
 			}
 
 			// 挪动剩余数据

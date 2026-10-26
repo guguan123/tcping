@@ -93,13 +93,14 @@ while [[ $running -ge 1 ]] && { [[ $COUNT -eq -1 ]] || [[ $transmitted -lt $COUN
 	start_time=$(date +%s%N)
 
 	# 发送 PING
-	if ! echo -e "PING" >&3; then
+	if ! printf 'PING\r\n' >&3; then
 		echo "Send failed"
 		break
 	fi
 
 	# 等待 PONG
 	if read -r -t $TIMEOUT response <&3; then
+		response=${response%$'\r'}   # bash 的 read 不会去掉 CRLF 里的 \r
 		transmitted=$((transmitted + 1))
 		# 记录收到回复的时间
 		end_time=$(date +%s%N)

@@ -24,6 +24,7 @@ try {
 	$writer = New-Object System.IO.StreamWriter($stream)
 	$reader = New-Object System.IO.StreamReader($stream)
 	$writer.AutoFlush = $true
+	$writer.NewLine = "`r`n"   # 显式使用 CRLF
 
 	while ($running -and ($Count -eq -1 -or $transmitted -lt $Count)) {
 		if ($transmitted -gt 0) { Start-Sleep -Seconds $Interval }

@@ -270,7 +270,7 @@ int main(int argc, char *argv[]) {
 	while (running && (max_count == -1 || count < max_count)) {
 		long long send_time = get_usec_timestamp();
 
-		const char *ping_msg = "PING\n";
+		const char *ping_msg = "PING\r\n";
 		if (send(sock, ping_msg, strlen(ping_msg), MSG_NOSIGNAL) < 0) {
 			if (running) {
 				fprintf(stderr, "\n[!] Send failed\n");

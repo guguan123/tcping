@@ -84,6 +84,26 @@ Reply from 2605:8340:0:7::1c: seq=5 time=231.807 ms
 rtt min/avg/max = 231.807/232.839/236.488 ms
 ```
 
+### Protocol
+
+`tcpping` and `tcppingd` use a minimal line-based text protocol with CRLF (`\r\n`) line endings:
+
+```text
+client -> server:  PING\r\n
+server -> client:  PONG\r\n
+```
+
+The server replies to a line that is exactly `PING`, and accepts both CRLF (`\r\n`) and a bare `\n`.
+When testing with `telnet`, press Enter once before typing `PING`: the client sends its
+option-negotiation bytes on connect, and they get prepended to whatever you type first.
+
+```bash
+telnet <host> 50414
+# press Enter once, then type PING and press Enter
+```
+
+Lines longer than the 63-byte receive buffer are discarded, and unknown commands are ignored.
+
 ### Other
 
 **PowerShell:**
